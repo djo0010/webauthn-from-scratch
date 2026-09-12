@@ -1,18 +1,38 @@
-# OS / IDE
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
-*.iml
-
-# Build
+HELP.md
 target/
-build/
-dist/
-out/
-node_modules/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
-# Env / secrets
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Env / secrets ###
 .env
 .env.*
 *.pem
