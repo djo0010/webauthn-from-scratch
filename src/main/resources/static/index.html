@@ -1,102 +1,121 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>WebAuthn from scratch — M0</title>
-  <style>
-    body { font: 15px/1.5 system-ui, sans-serif; max-width: 72ch; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
-    button { font: inherit; padding: .5rem 1rem; cursor: pointer; }
-    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
-    .warn { color: #8a4a00; }
-  </style>
-</head>
-<body>
-  <h1>M0 — reach the authenticator</h1>
-  <p>
-    Done when clicking the button prompts Touch ID / Windows Hello / a security key and a
-    credential object appears below. Nothing is verified yet — that is M1 and M2.
-  </p>
-  <p class="warn">
-    The challenge below is generated <em>in the browser</em>. That is deliberately wrong and
-    exists only to prove the plumbing. In M1 the server generates it, stores it against the
-    session, and rejects anything it didn't issue.
-  </p>
-
-  <button id="register">Create a credential</button>
-  <pre id="out">(waiting)</pre>
-
-  <script>
-    const out = document.getElementById('out');
-    const log = (obj) => { out.textContent = JSON.stringify(obj, null, 2); console.log(obj); };
-
-    // WebAuthn wants BufferSource for binary fields, not strings. Forgetting this is
-    // everyone's first bug.
-    const randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n));
-    const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-    document.getElementById('register').addEventListener('click', async () => {
-      if (!window.PublicKeyCredential) {
-        return log({ error: 'WebAuthn is not supported in this browser' });
+  <head>
+    <meta charset="utf-8" />
+    <title>WebAuthn from scratch — M1</title>
+    <style>
+      body {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        max-width: 72ch;
+        margin: 3rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
       }
+      button {
+        font: inherit;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 1rem;
+        overflow-x: auto;
+        font-size: 13px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .warn {
+        color: #8a4a00;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>M1 — server-issued challenge</h1>
+    <p>
+      Clicking the button asks <code>/register/options</code> for creation
+      options. The server generates the challenge, stores it against this
+      session, and sends it back base64url-encoded. The browser decodes it and
+      hands it to the authenticator. Nothing is verified yet — that is M2.
+    </p>
+    <p class="warn">
+      Done when the <code>challenge_from_server</code> below matches
+      <code>clientDataJSON.challenge</code>: that is the proof the authenticator
+      signed over the exact challenge this server issued.
+    </p>
 
-      const options = {
-        // M1 replaces this with a value the server issued. Right now it proves nothing.
-        challenge: randomBytes(32),
+    <button id="register">Create a credential</button>
+    <pre id="out">(waiting)</pre>
 
-        // The Relying Party. `id` must be the current origin's registrable domain (or a
-        // suffix of it). For http://localhost:8080 that is exactly "localhost".
-        rp: { id: 'localhost', name: 'WebAuthn from scratch' },
-
-        // The user handle. Opaque random bytes — NEVER an email or username, because the
-        // authenticator stores it and may reveal it before authentication completes.
-        user: {
-          id: randomBytes(16),
-          name: 'dj@example.test',           // shown in the picker
-          displayName: 'DJ (M0 test user)',   // shown in the picker
-        },
-
-        // Algorithms we accept, in preference order. -7 is ES256 (ECDSA / P-256), which
-        // nearly every authenticator supports. -257 is RS256.
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -7 },
-          { type: 'public-key', alg: -257 },
-        ],
-
-        authenticatorSelection: {
-          // 'platform' = Touch ID / Windows Hello; 'cross-platform' = a security key.
-          // Leaving it unset lets the browser offer both.
-          residentKey: 'preferred',       // ask for a discoverable credential (a passkey)
-          userVerification: 'preferred',  // 'preferred' guarantees nothing — see Notes §3
-        },
-
-        // 'none' — we're not going to verify the authenticator's provenance, so don't ask
-        // the user to consent to sharing it. See Notes §3 on why 'direct' is rarely justified.
-        attestation: 'none',
-
-        timeout: 60_000,
+    <script>
+      const out = document.getElementById("out");
+      const log = (obj) => {
+        out.textContent = JSON.stringify(obj, null, 2);
+        console.log(obj);
       };
 
-      try {
-        const cred = await navigator.credentials.create({ publicKey: options });
+      // bytes -> base64url string, for displaying what the authenticator returned
+      const b64url = (buf) =>
+        btoa(String.fromCharCode(...new Uint8Array(buf)))
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
 
-        // What the RP actually receives. In M2 the server parses attestationObject (CBOR)
-        // and clientDataJSON, and verifies both.
-        const clientData = JSON.parse(new TextDecoder().decode(cred.response.clientDataJSON));
-        log({
-          id: cred.id,
-          type: cred.type,
-          rawId_b64url: b64url(cred.rawId),
-          authenticatorAttachment: cred.authenticatorAttachment,
-          transports: cred.response.getTransports?.(),
-          clientDataJSON: clientData,
-          attestationObject_bytes: cred.response.attestationObject.byteLength,
-          attestationObject_b64url: b64url(cred.response.attestationObject),
+      // base64url string -> bytes. WebAuthn wants BufferSource for binary fields, not
+      // strings, but JSON cannot carry raw bytes, so the server sends challenge and
+      // user.id as base64url and we decode them here. Forgetting this is everyone's
+      // first bug.
+      const fromB64url = (s) => {
+        const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+        return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+      };
+
+      document
+        .getElementById("register")
+        .addEventListener("click", async () => {
+          if (!window.PublicKeyCredential) {
+            return log({ error: "WebAuthn is not supported in this browser" });
+          }
+
+          try {
+            // ask the server for creation options and a fresh challenge
+            const res = await fetch("/register/options", { method: "POST" });
+            if (!res.ok) {
+              throw new Error(`/register/options returned ${res.status}`);
+            }
+            const options = await res.json();
+
+            // undo the base64url the server had to use for bytes-in-JSON
+            options.challenge = fromB64url(options.challenge);
+            options.user.id = fromB64url(options.user.id);
+
+            const cred = await navigator.credentials.create({
+              publicKey: options,
+            });
+
+            // What the RP actually receives. In M2 the server parses attestationObject (CBOR)
+            // and clientDataJSON, and verifies both.
+            const clientData = JSON.parse(
+              new TextDecoder().decode(cred.response.clientDataJSON),
+            );
+            log({
+              challenge_from_server: b64url(options.challenge),
+              id: cred.id,
+              type: cred.type,
+              rawId_b64url: b64url(cred.rawId),
+              authenticatorAttachment: cred.authenticatorAttachment,
+              transports: cred.response.getTransports?.(),
+              clientDataJSON: clientData,
+              attestationObject_bytes:
+                cred.response.attestationObject.byteLength,
+              attestationObject_b64url: b64url(cred.response.attestationObject),
+            });
+          } catch (e) {
+            log({ error: e.name, message: e.message });
+          }
         });
-      } catch (e) {
-        log({ error: e.name, message: e.message });
-      }
-    });
-  </script>
-</body>
+    </script>
+  </body>
 </html>
