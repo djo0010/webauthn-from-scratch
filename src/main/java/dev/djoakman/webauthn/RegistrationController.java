@@ -60,14 +60,14 @@ public class RegistrationController {
 		// issue a fresh challenge for this session and encode it for JSON
 		byte[] challenge = challenges.issue(session);
 
-		//encode using our encoder
+		// encode using our encoder
 		String challengeEncoded = B64URL.encodeToString(challenge);
 
 		// the user handle is random bytes not an email so it can never leak identity
 		byte[] userHandle = new byte[16];
-		//fill the array
+		// fill the array
 		random.nextBytes(userHandle);
-		//encode using our encoder
+		// encode using our encoder
 		String userHandleEncoded = B64URL.encodeToString(userHandle);
 
 		// the algorithms we will accept in order of preference (ES256 first then RS256)
@@ -77,7 +77,11 @@ public class RegistrationController {
 
 		// require a discoverable credential and user verification (see README for why)
 
-		//here, we
+		// no username needed step. the authenticator recognizes this site from its own
+		// storage. (here it would see localhost)
+		// offers the stored account, asks for a PIN or biometric, then signs the
+		// challenge with that account's private key. the server checks the signature with the
+		// public key
 		AuthenticatorSelection authenticatorSelection = new AuthenticatorSelection("required", "required");
 
 		// assemble everything the browser needs for navigator.credentials.create()
